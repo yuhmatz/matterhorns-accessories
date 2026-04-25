@@ -1,6 +1,6 @@
 import React from 'react';
 
-// Matterhorn Accessories - Brand Palette
+// src/App.js - Brand Palette
 const theme = {
   oxblood: '#4A0404',
   gold: '#C5A059',
