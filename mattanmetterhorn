@@ -1,0 +1,63 @@
+import React from 'react';
+
+// Matterhorn Accessories - Brand Palette
+const theme = {
+  oxblood: '#4A0404',
+  gold: '#C5A059',
+  offWhite: '#FAF9F6',
+};
+
+const MatterhornApp = () => {
+  return (
+    <div className="min-h-screen font-serif" style={{ backgroundColor: theme.offWhite }}>
+      
+      {/* Navigation - Subtly Regal */}
+      <nav className="border-b-2 border-stone-200 py-8 px-12 flex justify-between items-center bg-white">
+        <div className="text-2xl font-bold tracking-[0.2em] uppercase" style={{ color: theme.oxblood }}>
+          Matterhorn
+        </div>
+        <div className="hidden md:flex space-x-12 text-xs uppercase tracking-widest text-stone-600">
+          <a href="#tailoring" className="hover:text-stone-900 transition">Bespoke</a>
+          <a href="#accessories" className="hover:text-stone-900 transition">Accessories</a>
+          <a href="#heritage" className="hover:text-stone-900 transition">The Archive</a>
+        </div>
+        <div className="text-xs uppercase tracking-widest" style={{ color: theme.gold }}>
+          Bag (0)
+        </div>
+      </nav>
+
+      {/* Hero Section - The "Man-Made God" Archetype */}
+      <section className="relative h-[80vh] flex items-center justify-center text-white overflow-hidden" style={{ backgroundColor: theme.oxblood }}>
+        <div className="z-10 text-center px-4">
+          <h1 className="text-5xl md:text-7xl font-light mb-6 tracking-tight italic">
+            Defining the Imperial Standard
+          </h1>
+          <p className="max-w-xl mx-auto text-sm md:text-base opacity-80 leading-relaxed tracking-wide mb-10 font-sans">
+            Crafted for those who understand that power is not just held, but tailored. 
+            High-fidelity craftsmanship meeting neoclassical precision.
+          </p>
+          <button 
+            className="px-12 py-4 border border-white/30 hover:border-white transition-all duration-500 uppercase text-[10px] tracking-[0.4em]"
+            style={{ backgroundColor: 'transparent' }}
+          >
+            Explore the Collection
+          </button>
+        </div>
+        
+        {/* Subtle Decorative Background Element */}
+        <div className="absolute inset-0 opacity-5 flex items-center justify-center pointer-events-none">
+          <span className="text-[40rem] select-none">M</span>
+        </div>
+      </section>
+
+      {/* Featured Collection */}
+      <section id="accessories" className="py-24 px-12 max-w-7xl mx-auto">
+        <h2 className="text-center text-xs uppercase tracking-[0.5em] mb-20 text-stone-400">
+          The Essential Hardware
+        </h2>
+        
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-16">
+          {[
+            { name: 'Oxblood Silk Tie', price: '₪420', desc: 'Hand-rolled in Italy' },
+            { name: 'Gold Greek Key Links', price: '₪850', desc: '24K Gold Finish' },
+            { name: 'Merino Wool Pocket Square', price: '₪1
