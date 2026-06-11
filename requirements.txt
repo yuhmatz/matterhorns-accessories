@@ -1,0 +1,15 @@
+numpy>=1.26
+pandas>=2.1
+scipy>=1.11
+scikit-learn>=1.4
+
+# Optional (production deployments)
+# yfinance>=0.2          # free historical data provider
+# alpaca-py>=0.21        # broker + market data
+# polygon-api-client     # market data
+# kafka-python           # event bus
+# redis                  # hot cache / feature store
+# psycopg2-binary        # PostgreSQL/TimescaleDB
+# fastapi, uvicorn       # dashboard / API
+# prometheus-client      # metrics
+# mlflow                 # model registry
