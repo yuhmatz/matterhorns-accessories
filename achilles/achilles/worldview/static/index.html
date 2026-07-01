@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>ACHILLES — WorldView</title>
+<link href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" rel="stylesheet"/>
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<style>
+  html, body { margin: 0; height: 100%; background: #05070a; color: #9fe8b3;
+               font-family: "Consolas", "Menlo", monospace; }
+  #map { position: absolute; inset: 0; }
+  /* Visual filters: NV / FLIR / CRT applied over the whole map canvas */
+  #map.nv   { filter: sepia(1) hue-rotate(60deg) saturate(3.2) brightness(0.85) contrast(1.25); }
+  #map.flir { filter: grayscale(1) invert(1) contrast(1.35) brightness(1.05); }
+  #map.crt  { filter: saturate(1.4) contrast(1.2); }
+  #scanlines { position: absolute; inset: 0; pointer-events: none; display: none; z-index: 5;
+    background: repeating-linear-gradient(0deg, rgba(0,0,0,.22) 0 1px, transparent 1px 3px); }
+  body.crt-on #scanlines { display: block; }
+  #hud { position: absolute; top: 10px; left: 10px; z-index: 10;
+         background: rgba(5,10,7,.82); border: 1px solid #1f4d2c; padding: 10px 12px;
+         font-size: 12px; letter-spacing: .08em; }
+  #hud h1 { margin: 0 0 6px; font-size: 13px; color: #c4ffd2; font-weight: 600; }
+  #hud .row { margin-top: 6px; }
+  #hud button { background: #0a1810; color: #9fe8b3; border: 1px solid #1f4d2c;
+                padding: 3px 9px; margin-right: 5px; cursor: pointer; font: inherit; }
+  #hud button.on { background: #1f4d2c; color: #eaffef; }
+  #status { color: #5c8f6b; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="scanlines"></div>
+<div id="hud">
+  <h1>ACHILLES // WORLDVIEW</h1>
+  <div class="row">
+    <button id="btn-air" class="on">AIR</button>
+    <button id="btn-rain" class="on">RAIN</button>
+    <button id="btn-clouds">CLOUDS</button>
+  </div>
+  <div class="row">
+    <button data-vf="none" class="vf on">STD</button>
+    <button data-vf="nv" class="vf">NV</button>
+    <button data-vf="flir" class="vf">FLIR</button>
+    <button data-vf="crt" class="vf">CRT</button>
+  </div>
+  <div id="status">initializing…</div>
+</div>
+<script>
+(async function () {
+  const status = (t) => document.getElementById("status").textContent = t;
+  // Relative URL only — reachable from any device that can reach this server.
+  const cfg = await fetch("api/config").then(r => r.json());
+
+  const map = new maplibregl.Map({
+    container: "map",
+    style: "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json",
+    center: [cfg.center[1], cfg.center[0]],
+    zoom: cfg.zoom,
+    attributionControl: true,
+  });
+  map.addControl(new maplibregl.NavigationControl(), "bottom-right");
+  if (cfg.bbox) {
+    const [s, w, n, e] = cfg.bbox;
+    map.fitBounds([[w, s], [e, n]], { padding: 24, duration: 0 });
+  }
+
+  map.on("load", async () => {
+    // --- Aircraft (relayed server-side via /api/aircraft) ---
+    map.addSource("aircraft", { type: "geojson",
+      data: { type: "FeatureCollection", features: [] } });
+    map.addLayer({
+      id: "aircraft-dots", type: "circle", source: "aircraft",
+      paint: {
+        "circle-radius": 4,
+        "circle-color": ["case", ["get", "military"], "#ff5d5d", "#7CFC9A"],
+        "circle-stroke-color": "#0a2012", "circle-stroke-width": 1,
+      },
+    });
+    map.addLayer({
+      id: "aircraft-labels", type: "symbol", source: "aircraft",
+      layout: {
+        "text-field": ["get", "callsign"], "text-size": 10,
+        "text-offset": [0, 1.1], "text-allow-overlap": false,
+      },
+      paint: { "text-color": "#9fe8b3", "text-halo-color": "#05070a", "text-halo-width": 1 },
+    });
+    async function refreshAircraft() {
+      try {
+        const geo = await fetch("api/aircraft").then(r => r.json());
+        map.getSource("aircraft").setData(geo);
+        status(`${geo.features.length} aircraft · ${new Date().toLocaleTimeString()}`);
+      } catch (e) { status("aircraft feed error"); }
+    }
+    refreshAircraft();
+    setInterval(refreshAircraft, 10000);
+
+    // --- Rain radar (RainViewer — keyless, fetched directly) ---
+    try {
+      const rv = await fetch("https://api.rainviewer.com/public/weather-maps.json")
+        .then(r => r.json());
+      const frames = (rv.radar && rv.radar.past) || [];
+      if (frames.length) {
+        const latest = frames[frames.length - 1];
+        map.addSource("rain", { type: "raster", tileSize: 256,
+          tiles: [`${rv.host}${latest.path}/256/{z}/{x}/{y}/2/1_1.png`] });
+        map.addLayer({ id: "rain", type: "raster", source: "rain",
+          paint: { "raster-opacity": 0.6 } }, "aircraft-dots");
+      }
+    } catch (e) { /* radar optional */ }
+
+    // --- Cloud layer (key stays server-side; tiles proxied) ---
+    if (cfg.cloudsEnabled) {
+      map.addSource("clouds", { type: "raster", tileSize: 256,
+        tiles: [location.pathname.replace(/\/$/, "") + "/tiles/clouds/{z}/{x}/{y}.png"] });
+      map.addLayer({ id: "clouds", type: "raster", source: "clouds",
+        paint: { "raster-opacity": 0.5 }, layout: { visibility: "none" } }, "aircraft-dots");
+    }
+
+    // --- HUD wiring ---
+    const toggles = [["btn-air", ["aircraft-dots", "aircraft-labels"]],
+                     ["btn-rain", ["rain"]], ["btn-clouds", ["clouds"]]];
+    for (const [btnId, layers] of toggles) {
+      const btn = document.getElementById(btnId);
+      btn.addEventListener("click", () => {
+        const turnOn = !btn.classList.contains("on");
+        btn.classList.toggle("on", turnOn);
+        for (const id of layers) {
+          if (map.getLayer(id)) {
+            map.setLayoutProperty(id, "visibility", turnOn ? "visible" : "none");
+          }
+        }
+      });
+    }
+    if (cfg.cloudsEnabled) document.getElementById("btn-clouds").classList.add("on"),
+      map.setLayoutProperty("clouds", "visibility", "visible");
+  });
+
+  // Visual filters
+  document.querySelectorAll("button.vf").forEach(btn => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll("button.vf").forEach(b => b.classList.remove("on"));
+      btn.classList.add("on");
+      const mode = btn.dataset.vf;
+      const el = document.getElementById("map");
+      el.className = mode === "none" ? "" : mode;
+      document.body.classList.toggle("crt-on", mode === "crt");
+    });
+  });
+})();
+</script>
+</body>
+</html>

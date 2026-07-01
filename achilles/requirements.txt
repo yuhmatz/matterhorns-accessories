@@ -1,0 +1,21 @@
+# Core runs on the standard library alone (Python 3.11+, incl. 3.14).
+# Everything below is OPTIONAL and enables a specific capability.
+# All entries ship version-independent / pure-Python wheels — the constraint
+# that killed openWakeWord/onnxruntime on Python 3.14 does not apply here.
+
+# Voice (wake word + STT) and microphone capture
+vosk>=0.3.45
+sounddevice>=0.4.6
+
+# Claude brain
+anthropic>=0.40.0
+
+# Market briefing (falls back to Stooq CSV without this)
+yfinance>=0.2.40
+
+# Spotify
+spotipy>=2.24.0
+
+# Google Calendar
+google-api-python-client>=2.140.0
+google-auth-oauthlib>=1.2.0
