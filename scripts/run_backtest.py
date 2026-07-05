@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import numpy as np
 import pandas as pd
 
-from matterhorn_quant.backtest.engine import BacktestEngine
+from matterhorn_quant.backtest.engine import BacktestEngine, walk_forward_analysis
 from matterhorn_quant.backtest.metrics import format_summary
 from matterhorn_quant.backtest.stress import monte_carlo_paths, scenario_analysis
 from matterhorn_quant.config import DEFAULT_SETTINGS
@@ -42,6 +42,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--years", type=int, default=8)
     parser.add_argument("--no-ml", action="store_true")
+    parser.add_argument("--walk-forward", action="store_true",
+                        help="also run per-fold walk-forward robustness analysis")
     args = parser.parse_args()
 
     setup_logging()
@@ -105,6 +107,23 @@ def main() -> None:
     gross = 0.8
     daily_vol = float(result.returns.std())
     print(scenario_analysis(net, gross, daily_vol).round(4).to_string())
+
+    if args.walk_forward:
+        print("\n=== Walk-forward analysis (independent folds) =============")
+
+        def make_engine():
+            return BacktestEngine(
+                settings,
+                strategies=[MomentumStrategy(), MeanReversionStrategy(), BreakoutStrategy()],
+                use_ml=not args.no_ml,
+            )
+
+        folds = walk_forward_analysis(make_engine, data, n_folds=3)
+        cols = ["fold", "start", "cagr", "sharpe", "max_drawdown", "win_rate", "n_trades"]
+        print(pd.DataFrame(folds)[cols].round(3).to_string(index=False))
+        sharpes = [f["sharpe"] for f in folds]
+        print(f"\nFold Sharpe dispersion: min {min(sharpes):.2f} / max {max(sharpes):.2f} — "
+              f"wide dispersion means the edge is regime-dependent, not robust")
 
 
 if __name__ == "__main__":
