@@ -22,7 +22,7 @@ from ..config import Settings
 from ..core.types import Order, OrderSide, Position, Signal, TradeDecision
 from ..decision.engine import DecisionEngine
 from ..execution.broker import PaperBroker, bar_from_row
-from ..execution.router import SmartOrderRouter
+from ..execution.router import MAX_NOTIONAL_PCT, SmartOrderRouter
 from ..ml.features import LABEL_HORIZON, build_features
 from ..ml.models import MLStrategy, WalkForwardEnsemble
 from ..risk.manager import RiskManager, RiskStateSnapshot
@@ -43,10 +43,13 @@ class BacktestResult:
     risk_events: list[str]
     sample_decisions: list[TradeDecision]
     n_fills: int
+    warmup: int = 0
 
     @property
     def returns(self) -> pd.Series:
-        return self.equity.pct_change().dropna()
+        # exclude the flat warmup segment: its zero returns would dilute
+        # vol/VaR/Monte-Carlo statistics computed downstream
+        return self.equity.iloc[self.warmup:].pct_change().dropna()
 
 
 @dataclass
@@ -102,7 +105,7 @@ class BacktestEngine:
         broker = PaperBroker(self.settings.execution, self.settings.backtest.initial_equity)
         router = SmartOrderRouter(broker, self.settings.execution)
         positions: dict[str, Position] = {}
-        stops: dict[str, tuple[float, float]] = {}  # symbol -> (stop, take_profit)
+        stops: dict[str, tuple[float, float, int]] = {}  # symbol -> (stop, take_profit, direction)
         equity_curve = pd.Series(np.nan, index=index)
         equity_curve.iloc[:warmup] = self.settings.backtest.initial_equity
         peak_equity = self.settings.backtest.initial_equity
@@ -161,7 +164,9 @@ class BacktestEngine:
                 signals_by_symbol, RegimeDetector.strategy_tilts(regime))
 
             # 6) risk sizing + limits + circuit breakers
-            port_returns = equity_curve.iloc[:i].pct_change().dropna()
+            # start at the last warmup bar so the flat warmup segment's
+            # synthetic zero returns don't dilute the VaR sample
+            port_returns = equity_curve.iloc[max(warmup - 1, 0): i].pct_change().dropna()
             decisions, risk_state = self.risk.size_positions(
                 decisions, equity, peak_equity,
                 asset_vol.iloc[i].to_dict(), port_returns,
@@ -175,7 +180,9 @@ class BacktestEngine:
             bar_i = data  # alias for stop checks below
             for sym, pos in list(positions.items()):
                 if sym in stops and pos.qty != 0:
-                    stop, tp = stops[sym]
+                    stop, tp, sdir = stops[sym]
+                    if sdir != (1 if pos.qty > 0 else -1):
+                        continue  # stale after a flip; refreshed on the flip fill
                     row = bar_i[sym].iloc[i]
                     hit = ((pos.qty > 0 and (row["low"] <= stop or row["high"] >= tp))
                            or (pos.qty < 0 and (row["high"] >= stop or row["low"] <= tp)))
@@ -200,7 +207,17 @@ class BacktestEngine:
                 target_shares = int(target_w * equity / price)
                 cur_shares = positions.get(sym, Position(sym)).qty
                 delta = target_shares - cur_shares
-                if abs(delta) * price < max(0.01 * equity, 1000):  # turnover filter
+                closing = target_shares == 0 and cur_shares != 0
+                # turnover filter — but risk-mandated exits (stops, kill
+                # switch, no-decision flattening) must always go through
+                if not closing and abs(delta) * price < max(0.01 * equity, 1000):
+                    continue
+                # keep each order safely under the pre-trade notional cap;
+                # large position flips complete across successive bars
+                max_shares = int(0.9 * MAX_NOTIONAL_PCT * equity / price)
+                if abs(delta) > max_shares:
+                    delta = int(np.sign(delta)) * max_shares
+                if delta == 0:
                     continue
                 side = OrderSide.BUY if delta > 0 else OrderSide.SELL
                 order = Order(symbol=sym, side=side, qty=abs(delta))
@@ -214,12 +231,15 @@ class BacktestEngine:
                     if pos.qty == 0:
                         positions.pop(sym, None)
                         stops.pop(sym, None)
-                if sym in positions and sym not in stops and report.fills:
+                if sym in positions and report.fills:
                     direction = 1 if positions[sym].qty > 0 else -1
-                    atr_val = float(
-                        (data[sym]["high"] - data[sym]["low"]).iloc[i - 13:i + 1].mean())
-                    lv = self.risk.stop_levels(report.avg_price, direction, atr_val)
-                    stops[sym] = (lv.stop, lv.take_profit)
+                    # set stops on entry, and refresh when a flip through
+                    # zero leaves stale opposite-direction levels behind
+                    if sym not in stops or stops[sym][2] != direction:
+                        atr_val = float(
+                            (data[sym]["high"] - data[sym]["low"]).iloc[i - 13:i + 1].mean())
+                        lv = self.risk.stop_levels(report.avg_price, direction, atr_val)
+                        stops[sym] = (lv.stop, lv.take_profit, direction)
 
             # 9) queue outcome tracking for adaptive learning
             for sym, sigs in signals_by_symbol.items():
@@ -250,6 +270,7 @@ class BacktestEngine:
             risk_events=risk_events,
             sample_decisions=sample_decisions,
             n_fills=len(broker.fills),
+            warmup=warmup,
         )
 
 

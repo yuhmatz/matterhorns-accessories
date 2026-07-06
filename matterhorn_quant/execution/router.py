@@ -20,18 +20,25 @@ from .broker import Broker
 log = logging.getLogger(__name__)
 
 
+MAX_NOTIONAL_PCT = 0.15
+
+
 def validate_order(order: Order, bar: Bar, equity: float,
-                   max_notional_pct: float = 0.15,
+                   max_notional_pct: float = MAX_NOTIONAL_PCT,
                    max_price_deviation: float = 0.10) -> tuple[bool, str]:
-    """Pre-trade checks. Returns (ok, reason)."""
+    """Pre-trade checks. Returns (ok, reason).
+
+    All price references use the bar's OPEN — the price actually known when
+    the order is submitted; the close of the execution bar is future data.
+    """
     if order.qty <= 0:
         return False, "quantity must be positive"
-    notional = order.qty * bar.close
+    notional = order.qty * bar.open
     if notional > max_notional_pct * equity:
         return False, (f"notional ${notional:,.0f} exceeds "
                        f"{max_notional_pct:.0%} of equity")
     if order.type == OrderType.LIMIT and order.limit_price is not None:
-        deviation = abs(order.limit_price / bar.close - 1)
+        deviation = abs(order.limit_price / bar.open - 1)
         if deviation > max_price_deviation:
             return False, f"limit price {deviation:.1%} away from market"
     return True, "ok"
@@ -66,11 +73,14 @@ class SmartOrderRouter:
             return report
 
         t0 = time.perf_counter()
+        # cap TOTAL participation at the configured share of bar volume —
+        # slicing must not multiply the per-order liquidity cap
+        exec_qty = min(order.qty, max(1.0, self.cfg.max_participation * bar.volume))
         # TWAP-slice only orders big enough to have market impact; slicing
         # small orders just multiplies minimum commissions
         n_slices = (self.cfg.twap_slices
-                    if order.qty * bar.close > 0.02 * equity else 1)
-        slice_qty = order.qty / n_slices
+                    if exec_qty * bar.open > 0.02 * equity else 1)
+        slice_qty = exec_qty / n_slices
         for _ in range(n_slices):
             child = Order(symbol=order.symbol, side=order.side, qty=slice_qty,
                           type=order.type, limit_price=order.limit_price)

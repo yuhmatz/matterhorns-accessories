@@ -39,11 +39,15 @@ Monte Carlo stress test, and crisis scenario analysis.
 Representative output (synthetic data — demonstrates the plumbing, not alpha):
 
 ```
-CAGR               +5.58%      Sharpe        1.21
-Annual vol          4.58%      Sortino       1.92
-Max drawdown       -5.64%      Win rate     50.59%
-Profit factor       1.25       Trades         8938
+CAGR               +3.78%      Sharpe        0.78
+Annual vol          4.91%      Sortino       1.27
+Max drawdown       -8.10%      Win rate     48.16%
+Profit factor       1.16       Trades         8412
 ```
+
+(These numbers *dropped* after an adversarial code review fixed lookahead
+and risk-logic bugs — a live demonstration of why most backtest edges are
+bugs. The review's confirmed findings and fixes are in the git history.)
 
 ## Package layout
 

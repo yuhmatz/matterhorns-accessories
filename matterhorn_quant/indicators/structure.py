@@ -25,12 +25,14 @@ def support_resistance(df: pd.DataFrame, window: int = 10, lookback: int = 250,
     support = np.full(len(df), np.nan)
     resistance = np.full(len(df), np.nan)
     levels: list[float] = []
-    pivots = list(zip(piv_hi.values, piv_lo.values, high.values, low.values))
-    for i, (is_hi, is_lo, h, l) in enumerate(pivots):
+    highs, lows = high.values, low.values
+    for i, (is_hi, is_lo) in enumerate(zip(piv_hi.values, piv_lo.values)):
+        # a flag at i confirms a pivot that occurred `window` bars earlier —
+        # record the pivot bar's price, not the confirmation bar's
         if is_hi:
-            levels.append(h)
+            levels.append(highs[i - window])
         if is_lo:
-            levels.append(l)
+            levels.append(lows[i - window])
         levels = levels[-60:]  # keep recent structure only
         c = close.iloc[i]
         below = [lv for lv in levels if lv < c * (1 - tolerance / 4)]

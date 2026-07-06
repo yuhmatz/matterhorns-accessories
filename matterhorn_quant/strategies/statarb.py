@@ -64,23 +64,29 @@ def find_cointegrated_pairs(prices: dict[str, pd.Series], adf_threshold: float =
 class PairsStrategy(Strategy):
     """Trade the z-scored cointegrating spread of one (a, b) pair.
 
-    Emits a signal only for the leg matching `symbol`; the backtest engine
-    runs one instance per leg so both sides are taken simultaneously.
+    The spread is always computed from the stored price series of BOTH legs
+    (never from the frame being prepared), so the same instance can be
+    registered under either symbol; the engine runs it on each leg and it
+    emits the correctly-signed signal for that leg.
+
+    Entry at |z| >= entry_z; between exit_z and entry_z a weaker hold signal
+    keeps the position on until the spread actually converges (hysteresis).
     """
 
     def __init__(self, sym_a: str, sym_b: str, hedge_ratio: float,
-                 prices_b: pd.Series, window: int = 60,
+                 prices_a: pd.Series, prices_b: pd.Series, window: int = 60,
                  entry_z: float = 2.0, exit_z: float = 0.5):
         self.sym_a, self.sym_b, self.hedge = sym_a, sym_b, hedge_ratio
-        self.prices_b = prices_b
+        self.prices_a, self.prices_b = prices_a, prices_b
         self.window, self.entry_z, self.exit_z = window, entry_z, exit_z
         self.name = f"pairs[{sym_a}/{sym_b}]"
         self._col = f"z_{sym_a}_{sym_b}"
 
     def prepare(self, df: pd.DataFrame) -> pd.DataFrame:
         out = df.copy()
+        a = self.prices_a.reindex(df.index).ffill()
         b = self.prices_b.reindex(df.index).ffill()
-        spread = np.log(df["close"]) - self.hedge * np.log(b)
+        spread = np.log(a) - self.hedge * np.log(b)
         mean = spread.rolling(self.window).mean()
         std = spread.rolling(self.window).std()
         out[self._col] = (spread - mean) / std.replace(0, np.nan)
@@ -88,14 +94,20 @@ class PairsStrategy(Strategy):
 
     def signal(self, symbol: str, df: pd.DataFrame, i: int) -> Optional[Signal]:
         z = df[self._col].iloc[i]
-        if np.isnan(z) or abs(z) < self.entry_z:
-            return None
+        if np.isnan(z) or abs(z) < self.exit_z:
+            return None  # converged (or no data): be flat
         # spread too high -> short A / long B; leg sign depends on which leg we are
-        leg = -1.0 if symbol == self.sym_a else self.hedge / abs(self.hedge)
-        strength = float(np.clip(abs(z) / 3, 0, 1)) * np.sign(z) * leg
-        confidence = float(np.clip((abs(z) - self.entry_z) / 2 + 0.5, 0.5, 0.9))
+        leg = -1.0 if symbol == self.sym_a else float(np.sign(self.hedge))
+        if abs(z) >= self.entry_z:
+            strength = float(np.clip(abs(z) / 3, 0, 1)) * np.sign(z) * leg
+            confidence = float(np.clip((abs(z) - self.entry_z) / 2 + 0.5, 0.5, 0.9))
+            phase = f"entry (|z| >= {self.entry_z})"
+        else:  # hold zone: spread reverting but not yet converged
+            strength = 0.35 * float(np.sign(z)) * leg
+            confidence = 0.5
+            phase = f"hold ({self.exit_z} <= |z| < {self.entry_z})"
         return self._make(
             symbol, strength, confidence,
-            f"cointegrated spread {self.sym_a}/{self.sym_b} z={z:+.2f} "
-            f"(entry {self.entry_z}); mean-reversion leg",
+            f"cointegrated spread {self.sym_a}/{self.sym_b} z={z:+.2f}; {phase}; "
+            f"mean-reversion leg",
         )

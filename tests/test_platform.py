@@ -92,3 +92,45 @@ def test_end_to_end_backtest_smoke():
     # risk limits should keep the book from catastrophic loss even on chaos data
     assert result.summary["max_drawdown"] > -0.5
     assert "sharpe" in result.summary
+
+
+def test_validation_and_slicing_use_open_not_close():
+    """Accept/reject and TWAP slicing must not depend on the execution
+    bar's close (future data at fill time)."""
+    b = Bar("X", pd.Timestamp("2024-01-02"), 100.0, 120.0, 99.0, 118.0, 1e6)
+    order = Order(symbol="X", side=OrderSide.BUY, qty=140)  # 14000 @ open
+    ok, _ = validate_order(order, b, equity=100_000)
+    assert ok  # 14% at the open; would be 16.5% at the (unknowable) close
+
+
+def test_limit_order_never_fills_through_limit():
+    from matterhorn_quant.core.types import OrderType
+    broker = PaperBroker(DEFAULT_SETTINGS.execution, 1_000_000)
+    order = Order(symbol="X", side=OrderSide.BUY, qty=100,
+                  type=OrderType.LIMIT, limit_price=100.0)
+    fills = broker.submit(order, _bar(price=100.0))
+    assert fills and fills[0].price <= 100.0
+
+
+def test_router_participation_cap_total_not_per_slice():
+    from matterhorn_quant.execution.router import SmartOrderRouter
+    broker = PaperBroker(DEFAULT_SETTINGS.execution, 10_000_000)
+    router = SmartOrderRouter(broker, DEFAULT_SETTINGS.execution)
+    thin = Bar("X", pd.Timestamp("2024-01-02"), 100.0, 101.0, 99.0, 100.0, 10_000)
+    report = router.execute(Order(symbol="X", side=OrderSide.BUY, qty=5_000),
+                            thin, equity=10_000_000)
+    total = sum(f.qty for f in report.fills)
+    assert total <= DEFAULT_SETTINGS.execution.max_participation * 10_000 + 1
+
+
+def test_optimizers_respect_constraints():
+    from matterhorn_quant.portfolio.optimizer import (
+        mean_variance_weights, risk_parity_weights)
+    rng = np.random.default_rng(0)
+    rets = pd.DataFrame(rng.normal(0.0003, 0.01, (500, 4)), columns=list("ABCD"))
+    mu = pd.Series([0.10, 0.05, -0.05, 0.02], index=list("ABCD"))
+    w = mean_variance_weights(mu, rets, max_weight=0.10)
+    assert (w.abs() <= 0.10 + 1e-6).all() and np.abs(w).sum() <= 1 + 1e-6
+    assert w["A"] > w["C"]  # higher expected return -> larger weight
+    rp = risk_parity_weights(rets, max_weight=0.5)
+    assert abs(rp.sum() - 1) < 1e-6 and (rp >= 0).all()

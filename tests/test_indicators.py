@@ -67,3 +67,8 @@ def test_no_lookahead_in_indicators():
     full = rsi(df["close"]).iloc[:cut]
     truncated = rsi(df["close"].iloc[:cut])
     assert np.allclose(full, truncated, equal_nan=True)
+
+
+def test_rsi_monotone_rally_is_100():
+    up_only = pd.Series(np.linspace(100, 150, 60))
+    assert rsi(up_only).iloc[-1] == 100.0

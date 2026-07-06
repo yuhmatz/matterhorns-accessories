@@ -99,7 +99,12 @@ class PaperBroker(Broker):
         participation = qty / max(bar.volume, 1.0)
         impact_bps = self.cfg.slippage_bps * (1 + 10 * np.sqrt(participation))
         direction = 1 if order.side == OrderSide.BUY else -1
-        return float(ref * (1 + direction * impact_bps / 10_000))
+        price = float(ref * (1 + direction * impact_bps / 10_000))
+        if order.type == OrderType.LIMIT and order.limit_price is not None:
+            # a limit fill can never be worse than the limit price
+            price = (min(price, order.limit_price) if order.side == OrderSide.BUY
+                     else max(price, order.limit_price))
+        return price
 
 
 def bar_from_row(symbol: str, ts: pd.Timestamp, row: pd.Series) -> Bar:

@@ -107,8 +107,12 @@ class RiskManager:
                 d.target_weight = 0.0
                 continue
             base = self.cfg.annual_vol_target / vol          # equal-risk budget
-            kelly = self.cfg.kelly_fraction * abs(d.score) * d.confidence * 4
-            weight = np.sign(d.score) * min(base * min(kelly, 1.0),
+            # conviction in [0,1]: score*confidence of 0.25+ earns the full
+            # risk budget; kelly_fraction scales overall aggressiveness with
+            # quarter-Kelly as the calibrated baseline
+            conviction = min(1.0, abs(d.score) * d.confidence * 4)
+            kelly_scale = self.cfg.kelly_fraction / 0.25
+            weight = np.sign(d.score) * min(base * conviction * kelly_scale,
                                             self.cfg.max_position_weight)
             d.target_weight = float(weight) * dd_scalar * regime_scalar
 

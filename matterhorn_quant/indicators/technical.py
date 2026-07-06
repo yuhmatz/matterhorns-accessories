@@ -24,7 +24,10 @@ def rsi(close: pd.Series, window: int = 14) -> pd.Series:
     gain = delta.clip(lower=0).ewm(alpha=1 / window, adjust=False).mean()
     loss = (-delta.clip(upper=0)).ewm(alpha=1 / window, adjust=False).mean()
     rs = gain / loss.replace(0, np.nan)
-    return (100 - 100 / (1 + rs)).fillna(50.0)
+    out = 100 - 100 / (1 + rs)
+    # zero-loss history is maximally overbought (RSI 100), not neutral
+    out = out.mask((loss == 0) & (gain > 0), 100.0)
+    return out.fillna(50.0)
 
 
 def macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9) -> pd.DataFrame:

@@ -77,3 +77,20 @@ def test_drawdown_ladder_derisks():
     derisked, _ = rm2.size_positions(_decisions(["A"]), 850_000, 1_000_000,
                                      {"A": 0.2}, _returns())
     assert abs(derisked[0].target_weight) < abs(full[0].target_weight)
+
+
+def test_kelly_fraction_scales_size():
+    """Halving kelly_fraction must halve (uncapped) position size."""
+    full = RiskConfig()
+    full.max_position_weight = 1.0  # remove the cap so scaling is visible
+    half = RiskConfig()
+    half.max_position_weight = 1.0
+    half.kelly_fraction = full.kelly_fraction / 2
+    rm_full, rm_half = RiskManager(full), RiskManager(half)
+    rm_full.start_of_day(1_000_000)
+    rm_half.start_of_day(1_000_000)
+    d_full, _ = rm_full.size_positions(_decisions(["A"], score=0.4, conf=0.5),
+                                       1_000_000, 1_000_000, {"A": 0.3}, _returns())
+    d_half, _ = rm_half.size_positions(_decisions(["A"], score=0.4, conf=0.5),
+                                       1_000_000, 1_000_000, {"A": 0.3}, _returns())
+    assert abs(d_half[0].target_weight - d_full[0].target_weight / 2) < 1e-9

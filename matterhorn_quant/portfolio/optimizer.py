@@ -1,8 +1,11 @@
 """Portfolio construction: constrained mean–variance and risk-parity
 optimizers, plus rebalancing with turnover control.
 
-The decision engine produces conviction scores; the optimizer turns them
-into a diversified allocation; the risk manager then applies hard limits.
+This is the *strategic* allocation path (scheduled optimization/rebalance
+jobs, multi-sleeve capital allocation). The tactical daily path in
+`backtest/engine.py` sizes positions directly through the risk manager;
+wiring the optimizer between decision scores and risk limits is the
+intended production upgrade once sleeve-level expected returns exist.
 Covariance is shrunk (Ledoit–Wolf-style toward the diagonal) because sample
 covariance on short windows is the classic way to blow up an optimizer.
 """

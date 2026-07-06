@@ -61,7 +61,7 @@ def main() -> None:
     pairs = find_cointegrated_pairs(warmup_prices)
     pair_strategies: dict[str, list] = {}
     for a, b, hedge in pairs[:3]:
-        strat = PairsStrategy(a, b, hedge, data[b]["close"])
+        strat = PairsStrategy(a, b, hedge, data[a]["close"], data[b]["close"])
         pair_strategies.setdefault(a, []).append(strat)
         pair_strategies.setdefault(b, []).append(strat)
     print(f"Cointegrated pairs (warmup scan): {[(a, b) for a, b, _ in pairs[:3]] or 'none'}")
